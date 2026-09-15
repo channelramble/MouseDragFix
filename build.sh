@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds MouseDragFix.app into build/ and signs it. Usage: ./build.sh [--install]
+# Builds MouseDragFix.app into build/ and signs it. Usage: ./build.sh [--install | --release]
 set -euo pipefail
 cd "$(dirname "$0")"
 APP=MouseDragFix
@@ -14,8 +14,17 @@ swiftc -O -swift-version 5 -target arm64-apple-macos14.0 \
 cp Resources/Info.plist "$BUNDLE/Contents/"
 [[ -f Resources/AppIcon.icns ]] && cp Resources/AppIcon.icns "$BUNDLE/Contents/Resources/"
 IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Apple Development[^"]*"' | head -1 | tr -d '"' || true)
-codesign --force --sign "${IDENTITY:--}" "$BUNDLE"
-echo "built $BUNDLE (signed as ${IDENTITY:-ad-hoc})"
+codesign --force --options runtime --timestamp --sign "${IDENTITY:--}" "$BUNDLE" 2>/dev/null \
+    || codesign --force --options runtime --sign "${IDENTITY:--}" "$BUNDLE"   # no timestamp server offline
+echo "built $BUNDLE (signed as ${IDENTITY:-ad-hoc}, hardened runtime)"
+if [[ "${1:-}" == "--release" ]]; then
+    VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$BUNDLE/Contents/Info.plist")
+    ZIP="build/$APP-$VERSION.zip"
+    rm -f "$ZIP"
+    ditto -c -k --keepParent "$BUNDLE" "$ZIP"
+    codesign --verify --deep --strict "$BUNDLE" && spctl --assess --type execute "$BUNDLE" 2>&1 | sed 's/^/gatekeeper: /' || true
+    echo "release archive: $ZIP ($(du -h "$ZIP" | cut -f1))"
+fi
 if [[ "${1:-}" == "--install" ]]; then
     pkill -x "$APP" 2>/dev/null || true
     rm -rf "/Applications/$APP.app"

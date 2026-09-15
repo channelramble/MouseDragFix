@@ -12,6 +12,7 @@
 	<key>CFBundleShortVersionString</key><string>1.0</string>
 	<key>CFBundleVersion</key><string>1</string>
 	<key>CFBundleIconFile</key><string>AppIcon</string>
+	<key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSUIElement</key><true/>
 	<key>NSHumanReadableCopyright</key><string>MIT</string>

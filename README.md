@@ -41,7 +41,15 @@ in lockstep with the drag. Discrete actions use the Mission Control symbolic hot
 `CGSGetSymbolicHotKeyValue` & co.). If either private API is missing, the app falls back to
 hotkey-based Space switching. Scroll output uses phased pixel scroll events (trackpad simulation).
 
-## Build and install
+## Install
+
+Download `MouseDragFix-<version>.zip` from the [Releases](https://github.com/channelramble/MouseDragFix/releases)
+page, unzip, and move `MouseDragFix.app` to `/Applications`. The app is signed with an Apple
+Development certificate and the hardened runtime but is **not notarized**, so on first launch
+right-click the app → **Open** → **Open** (or allow it under System Settings → Privacy & Security).
+Then grant **Accessibility** when prompted; the app starts listening automatically.
+
+## Build from source
 
 ```bash
 ./build.sh --install
@@ -49,7 +57,8 @@ hotkey-based Space switching. Scroll output uses phased pixel scroll events (tra
 
 Builds `build/MouseDragFix.app` with `swiftc` (no Xcode project; falls back to the Command Line Tools
 toolchain if Xcode's license is not accepted), signs it with your Apple Development identity if one
-exists, copies it to `/Applications`, and launches it. Grant **Accessibility** when prompted.
+exists (hardened runtime), copies it to `/Applications`, and launches it. `./build.sh --release`
+produces the zip archive published on the Releases page.
 
 ## Using it alongside Mac Mouse Fix
 
