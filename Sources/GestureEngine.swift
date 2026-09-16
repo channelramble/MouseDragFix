@@ -37,7 +37,14 @@ final class GestureEngine {
         var usedAsScrollModifier = false
         var holdTimer: Timer?
         var pointerFrozen = false
-        var samples: [(t: CFTimeInterval, dx: Double, dy: Double)] = []
+        // Drag-to-scroll: input is smoothed like Mac Mouse Fix's 3/60 s linear animator, and the exit
+        // velocity is the last delivered delta divided by the time since the previous input.
+        var scrollPending = (x: 0.0, y: 0.0)      // px received but not yet emitted
+        var scrollTimer: Timer?
+        var lastInputTime: CFTimeInterval = 0
+        var lastInputDelta = (x: 0.0, y: 0.0)
+        var lastInputInterval = Double.greatestFiniteMagnitude
+        var scrollCarry = (x: 0.0, y: 0.0)
         // Fallback (hotkey-based Spaces switching when dock swipes are unavailable)
         var spaceAcc = 0.0, spaceFires = 0, lastSpaceFire: CFTimeInterval = 0, verticalFired = false
         init(button: Int, cfg: ButtonConfig, start: CGPoint, clickCount: Int) {
@@ -203,8 +210,13 @@ final class GestureEngine {
             case .scrollAndNavigate:
                 postScroll(dx: 0, dy: 0, phase: .began)
                 let (sx, sy) = dragScrollDeltas(h.accX, h.accY)
-                postScroll(dx: sx, dy: sy, phase: .changed)
-                h.samples.append((CACurrentMediaTime(), sx, sy))
+                dragScrollInput(h, dx: sx, dy: sy)
+                let t = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self, weak h] _ in
+                    guard let self, let h else { return }
+                    self.dragScrollFrame(h)
+                }
+                RunLoop.main.add(t, forMode: .common)
+                h.scrollTimer = t
             case .off: break
             }
             return
@@ -219,12 +231,31 @@ final class GestureEngine {
             }
         case .scrollAndNavigate:
             let (sx, sy) = dragScrollDeltas(dx, dy)
-            postScroll(dx: sx, dy: sy, phase: .changed)
-            let now = CACurrentMediaTime()
-            h.samples.append((now, sx, sy))
-            h.samples.removeAll { now - $0.t > 0.12 }
+            dragScrollInput(h, dx: sx, dy: sy)
         case .off: break
         }
+    }
+
+    private func dragScrollInput(_ h: Hold, dx: Double, dy: Double) {
+        let now = CACurrentMediaTime()
+        if h.lastInputTime != 0 { h.lastInputInterval = now - h.lastInputTime }
+        h.lastInputTime = now
+        h.lastInputDelta = (dx, dy)
+        h.scrollPending.x += dx; h.scrollPending.y += dy
+    }
+
+    /// Emits the smoothed drag-to-scroll movement: one third of what is pending per frame
+    /// (a 3-frame linear ramp, as in Mac Mouse Fix), so 1000 Hz input becomes 120 Hz output.
+    private func dragScrollFrame(_ h: Hold) {
+        guard h.scrollPending.x != 0 || h.scrollPending.y != 0 else { return }
+        var ex = h.scrollPending.x / 3, ey = h.scrollPending.y / 3
+        if abs(h.scrollPending.x) < 3 { ex = h.scrollPending.x }
+        if abs(h.scrollPending.y) < 3 { ey = h.scrollPending.y }
+        h.scrollPending.x -= ex; h.scrollPending.y -= ey
+        let fx = ex + h.scrollCarry.x, fy = ey + h.scrollCarry.y
+        let ix = fx.rounded(.towardZero), iy = fy.rounded(.towardZero)
+        h.scrollCarry = (fx - ix, fy - iy)
+        if ix != 0 || iy != 0 { postScroll(dx: ix, dy: iy, phase: .changed) }
     }
 
     /// Hotkey-based Spaces switching, used only when real dock swipes are unavailable.
@@ -252,6 +283,7 @@ final class GestureEngine {
 
     private func unfreeze(_ h: Hold) {
         if h.pointerFrozen { CGAssociateMouseAndMouseCursorPosition(1); h.pointerFrozen = false }
+        h.scrollTimer?.invalidate(); h.scrollTimer = nil
     }
 
     // MARK: Release → click actions
@@ -279,8 +311,18 @@ final class GestureEngine {
             switch h.cfg.drag {
             case .spacesAndMissionControl: DockSwipe.shared.end()
             case .scrollAndNavigate:
+                h.scrollTimer?.invalidate()
+                // flush whatever the smoothing ramp still holds
+                let rx = h.scrollPending.x + h.scrollCarry.x, ry = h.scrollPending.y + h.scrollCarry.y
+                if rx.rounded() != 0 || ry.rounded() != 0 { postScroll(dx: rx.rounded(), dy: ry.rounded(), phase: .changed) }
                 postScroll(dx: 0, dy: 0, phase: .ended)
-                if config.dragScrollMomentum { startMomentum(from: h.samples) }
+                if config.dragScrollMomentum {
+                    let since = CACurrentMediaTime() - h.lastInputTime
+                    // No momentum when the pointer had already stopped before the button came up.
+                    if since <= 0.1, h.lastInputInterval > 0, h.lastInputInterval < 0.1 {
+                        startMomentum(vx: h.lastInputDelta.x / h.lastInputInterval, vy: h.lastInputDelta.y / h.lastInputInterval)
+                    }
+                }
             case .off: break
             }
             return
@@ -364,20 +406,21 @@ final class GestureEngine {
         e.post(tap: .cgSessionEventTap)
     }
 
-    private func startMomentum(from samples: [(t: CFTimeInterval, dx: Double, dy: Double)]) {
-        guard let first = samples.first, let last = samples.last, last.t - first.t > 0.015 else { return }
-        let span = last.t - first.t
-        let vx = samples.reduce(0.0) { $0 + $1.dx } / span
-        let vy = samples.reduce(0.0) { $0 + $1.dy } / span
-        guard hypot(vx, vy) > 250 else { return }
+    private func startMomentum(vx: Double, vy: Double) {
+        guard hypot(vx, vy) > 1 else { return }
         let m = Momentum(vx: vx, vy: vy)
         momentum = m
         var isFirstFrame = true
-        let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] t in
+        var lastFrame = CACurrentMediaTime()
+        let t = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] t in
             guard let self, self.momentum === m else { t.invalidate(); return }
-            let dt = 1.0 / 60.0
-            m.vx *= 0.955; m.vy *= 0.955
-            if hypot(m.vx, m.vy) < 30 { self.stopMomentum(); return }
+            let now = CACurrentMediaTime()
+            let dt = min(0.05, now - lastFrame); lastFrame = now
+            // Trackpad-like deceleration: speed' = -30 · speed^0.7, stop at 1 px/s (Mac Mouse Fix values).
+            let speed = hypot(m.vx, m.vy)
+            let newSpeed = max(0, speed - 30 * pow(speed, 0.7) * dt)
+            if newSpeed <= 1 { self.stopMomentum(); return }
+            m.vx *= newSpeed / speed; m.vy *= newSpeed / speed
             let fx = m.vx * dt + m.remX, fy = m.vy * dt + m.remY
             let ix = fx.rounded(.towardZero), iy = fy.rounded(.towardZero)
             m.remX = fx - ix; m.remY = fy - iy

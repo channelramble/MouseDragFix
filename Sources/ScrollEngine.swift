@@ -47,9 +47,14 @@ final class ScrollEngine {
     func handle(_ event: CGEvent, forced: Mode?) -> Bool {
         guard forced != nil || cfg.enabled else { return false }
         guard event.getIntegerValueField(.scrollWheelEventIsContinuous) == 0 else { return false }
-        var ticksY = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
-        var ticksX = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis2))
-        guard ticksX != 0 || ticksY != 0 else { return false }
+        // One notch per event. macOS inflates the delta for fast spins; Mac Mouse Fix only uses its sign
+        // and derives the distance from tick timing, so we do the same.
+        let rawY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        let rawX = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+        guard rawX != 0 || rawY != 0 else { return false }
+        if rawX != 0 && rawY != 0 { return false }               // diagonal (tilt + wheel): leave to the system
+        var ticksY = Double(rawY.signum())
+        var ticksX = Double(rawX.signum())
 
         let flags = event.flags
         var mode = forced ?? .normal
@@ -131,6 +136,7 @@ final class ScrollEngine {
         default: duration = cfg.smoothing == .high ? 0.220 : 0.180 + (0.110 - 0.180) * ((exp(4 * speedNorm) - 1) / (exp(4.0) - 1))
         }
         if momentumOpen { postScroll(dx: 0, dy: 0, phase: nil, momentum: .end); momentumOpen = false }
+        if x.isIdle, y.isIdle { lineCarry = (0, 0) }
         if dx != 0 { addToAxis(&x, dx, duration: duration) }
         if dy != 0 { addToAxis(&y, dy, duration: duration) }
         ensureTimer()
@@ -186,7 +192,12 @@ final class ScrollEngine {
         let sx = step(&x, dt: dt, dragExp: dragExp, dragCoef: dragCoef, stopSpeed: stopSpeed)
         let sy = step(&y, dt: dt, dragExp: dragExp, dragCoef: dragCoef, stopSpeed: stopSpeed)
 
-        if baseActive || !high {
+        if !high {
+            // Regular smoothness: plain continuous pixel events without gesture phases, exactly like
+            // Mac Mouse Fix's "ContinuousScroll" output. Phased (trackpad-like) events make browsers
+            // rubber-band at the page edges while the animation is still running.
+            if sx != 0 || sy != 0 { postScroll(dx: sx, dy: sy, phase: nil, momentum: nil) }
+        } else if baseActive {
             if sx != 0 || sy != 0 || !sequenceOpen {
                 postScroll(dx: sx, dy: sy, phase: sequenceOpen ? .changed : .began, momentum: nil)
                 sequenceOpen = true
@@ -231,11 +242,26 @@ final class ScrollEngine {
 
     // MARK: Output
 
+    private var lineCarry = (x: 0.0, y: 0.0)   // sub-line remainder for the line-delta fields
+
     private func postScroll(dx: Double, dy: Double, phase: GestureEngine.ScrollPhase?, momentum: GestureEngine.MomentumPhase?) {
         if HotKeyPoster.dryRun { Log.info("DRYRUN wheel dx=\(dx) dy=\(dy) phase=\(phase.map { "\($0)" } ?? "-") momentum=\(momentum.map { "\($0)" } ?? "-")"); return }
         guard let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
                               wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0) else { return }
         e.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        if phase == nil && momentum == nil {
+            // Same field layout as Mac Mouse Fix's continuous scroll: line deltas = px/10 (sub-line carried),
+            // point deltas = px, fixed-point deltas = lines.
+            let fy = dy / 10 + lineCarry.y, fx = dx / 10 + lineCarry.x
+            let ly = fy.rounded(.towardZero), lx = fx.rounded(.towardZero)
+            lineCarry = (fx - lx, fy - ly)
+            e.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: Int64(ly))
+            e.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: Int64(lx))
+            e.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(dy))
+            e.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(dx))
+            e.setIntegerValueField(.scrollWheelEventFixedPtDeltaAxis1, value: Int64(ly) << 16)
+            e.setIntegerValueField(.scrollWheelEventFixedPtDeltaAxis2, value: Int64(lx) << 16)
+        }
         e.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase?.rawValue ?? 0)
         e.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum?.rawValue ?? 0)
         e.setIntegerValueField(.eventSourceUserData, value: HotKeyPoster.eventTag)

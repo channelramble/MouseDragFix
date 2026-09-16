@@ -12,7 +12,8 @@ A Mac Mouse Fix-style mouse enhancer for **macOS 27**, written because Mac Mouse
   Smart Zoom, Spotlight, Notification Center, App Switcher, or any recorded keyboard shortcut.
 - Click and Drag: **Spaces & Mission Control** (a real three-finger swipe that follows the pointer,
   drag up for Mission Control, down for App Exposé) or **Scroll & Navigate** (trackpad-style
-  drag scrolling with momentum, works for swipe navigation in Safari).
+  drag scrolling: input smoothed over a 3-frame ramp and released into momentum with Mac Mouse Fix's
+  deceleration curve; works for swipe navigation in Safari).
 - Click and Scroll (hold the button, turn the wheel): Zoom, Rotate, Switch Spaces, Swift scroll,
   Precise scroll, Horizontal scroll, App Switcher.
 
@@ -20,7 +21,8 @@ A Mac Mouse Fix-style mouse enhancer for **macOS 27**, written because Mac Mouse
 - Mac Mouse Fix's scroll model: tick-speed based acceleration (Medium: 60 px per notch when slow,
   120 px when spinning fast), fast-scroll speedup after three consecutive swipes, and its animator
   (a 110–180 ms linear step per notch plus an inertia tail; High smoothness adds trackpad momentum).
-  Off / Regular / High smoothness, Low / Medium / High speed, reverse direction.
+  Off / Regular / High smoothness, Low / Medium / High speed, reverse direction. Defaults are Mac Mouse
+  Fix's stock High smoothness (trackpad simulation with momentum) at Medium speed.
 - Modifier keys: ⇧ horizontal, ⌥ precise, ⌃ swift, ⌘ zoom (pinch gesture).
 
 **Pointer**

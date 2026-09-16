@@ -114,9 +114,11 @@ struct ButtonConfig: Codable, Equatable {
     }
 }
 
+/// Defaults mirror Mac Mouse Fix's out-of-the-box scrolling: High smoothness (its trackpad-simulation
+/// mode), Medium speed. Direction is left as macOS delivers it.
 struct ScrollConfig: Codable, Equatable {
     var enabled = true
-    var smoothing: Smoothing = .regular
+    var smoothing: Smoothing = .high
     var speed: ScrollSpeed = .medium
     var reverse = false
     var modHorizontal = true   // Shift
@@ -128,7 +130,7 @@ struct ScrollConfig: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-        smoothing = try c.decodeIfPresent(Smoothing.self, forKey: .smoothing) ?? .regular
+        smoothing = try c.decodeIfPresent(Smoothing.self, forKey: .smoothing) ?? .high
         speed = try c.decodeIfPresent(ScrollSpeed.self, forKey: .speed) ?? .medium
         reverse = try c.decodeIfPresent(Bool.self, forKey: .reverse) ?? false
         modHorizontal = try c.decodeIfPresent(Bool.self, forKey: .modHorizontal) ?? true
@@ -215,6 +217,11 @@ final class SettingsStore: ObservableObject {
             catch { Log.info("config decode failed (\(error)), using defaults"); config = .defaults }
         } else {
             config = .defaults
+        }
+        // One-time migration: scrolling defaults changed to Mac Mouse Fix's stock values; other settings are kept.
+        if !UserDefaults.standard.bool(forKey: "migratedScrollDefaults.v3") {
+            config.scroll = ScrollConfig()
+            UserDefaults.standard.set(true, forKey: "migratedScrollDefaults.v3")
         }
     }
 
