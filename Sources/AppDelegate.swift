@@ -95,11 +95,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showSettings() {
         if settingsWindow == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 560),
-                             styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 620),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             w.title = "MouseDragFix"
-            w.contentView = NSHostingView(rootView: SettingsView())
+            let host = NSHostingView(rootView: SettingsView())
+            host.autoresizingMask = [.width, .height]
+            w.contentView = host
+            w.contentMinSize = NSSize(width: 640, height: 580)
             w.isReleasedWhenClosed = false
+            w.setFrameAutosaveName("SettingsWindow")
             w.center()
             settingsWindow = w
         }

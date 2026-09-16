@@ -12,7 +12,7 @@ struct SettingsView: View {
             ScrollingTab(store: store).tabItem { Label("Scrolling", systemImage: "arrow.up.and.down") }
             PointerTab(store: store).tabItem { Label("Pointer", systemImage: "cursorarrow") }
         }
-        .frame(width: 600, height: 560)
+        .frame(minWidth: 640, minHeight: 580)
     }
 }
 
