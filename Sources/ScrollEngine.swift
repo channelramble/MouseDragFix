@@ -136,7 +136,7 @@ final class ScrollEngine {
         default: duration = cfg.smoothing == .high ? 0.220 : 0.180 + (0.110 - 0.180) * ((exp(4 * speedNorm) - 1) / (exp(4.0) - 1))
         }
         if momentumOpen { postScroll(dx: 0, dy: 0, phase: nil, momentum: .end); momentumOpen = false }
-        if x.isIdle, y.isIdle { lineCarry = (0, 0) }
+        if x.isIdle, y.isIdle { poster.resetLines() }
         if dx != 0 { addToAxis(&x, dx, duration: duration) }
         if dy != 0 { addToAxis(&y, dy, duration: duration) }
         ensureTimer()
@@ -242,31 +242,11 @@ final class ScrollEngine {
 
     // MARK: Output
 
-    private var lineCarry = (x: 0.0, y: 0.0)   // sub-line remainder for the line-delta fields
+    private let poster = ScrollPoster()
 
+    /// All wheel output goes through the shared poster, so line deltas are sub-pixelated exactly as
+    /// Mac Mouse Fix does instead of being rounded up to a whole line on every frame.
     private func postScroll(dx: Double, dy: Double, phase: GestureEngine.ScrollPhase?, momentum: GestureEngine.MomentumPhase?) {
-        if HotKeyPoster.dryRun { Log.info("DRYRUN wheel dx=\(dx) dy=\(dy) phase=\(phase.map { "\($0)" } ?? "-") momentum=\(momentum.map { "\($0)" } ?? "-")"); return }
-        guard let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
-                              wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0) else { return }
-        e.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        if phase == nil && momentum == nil {
-            // Same field layout as Mac Mouse Fix's continuous scroll: line deltas = px/10 (sub-line carried),
-            // point deltas = px, fixed-point deltas = lines.
-            let fy = dy / 10 + lineCarry.y, fx = dx / 10 + lineCarry.x
-            let ly = fy.rounded(.towardZero), lx = fx.rounded(.towardZero)
-            lineCarry = (fx - lx, fy - ly)
-            e.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: Int64(ly))
-            e.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: Int64(lx))
-            e.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(dy))
-            e.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(dx))
-            e.setIntegerValueField(.scrollWheelEventFixedPtDeltaAxis1, value: Int64(ly) << 16)
-            e.setIntegerValueField(.scrollWheelEventFixedPtDeltaAxis2, value: Int64(lx) << 16)
-        }
-        e.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase?.rawValue ?? 0)
-        e.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum?.rawValue ?? 0)
-        e.setIntegerValueField(.eventSourceUserData, value: HotKeyPoster.eventTag)
-        e.flags = outFlags
-        if let cursor = CGEvent(source: nil)?.location { e.location = cursor }
-        e.post(tap: .cgSessionEventTap)
+        poster.post(dx: dx, dy: dy, phase: phase, momentum: momentum ?? .none, flags: outFlags)
     }
 }

@@ -12,8 +12,8 @@ A Mac Mouse Fix-style mouse enhancer for **macOS 27**, written because Mac Mouse
   Smart Zoom, Spotlight, Notification Center, App Switcher, or any recorded keyboard shortcut.
 - Click and Drag: **Spaces & Mission Control** (a real three-finger swipe that follows the pointer,
   drag up for Mission Control, down for App Exposé) or **Scroll & Navigate** (trackpad-style
-  drag scrolling: input smoothed over a 3-frame ramp and released into momentum with Mac Mouse Fix's
-  deceleration curve; works for swipe navigation in Safari).
+  drag scrolling: Mac Mouse Fix's 50 ms linear smoothing animator, which drains rather than flushes on
+  release, then coasts on its drag curve from the speed the content was already moving at).
 - Click and Scroll (hold the button, turn the wheel): Zoom, Rotate, Switch Spaces, Swift scroll,
   Precise scroll, Horizontal scroll, App Switcher.
 
@@ -37,6 +37,10 @@ Control, Button 4 + wheel = Switch Spaces, Button 5 drag = Scroll & Navigate, Bu
 ## How it works on macOS 27
 
 macOS 27's WindowServer rejects the field-encoded synthetic gesture events that drove Spaces before.
+Scroll events carry Mac Mouse Fix's field layout: point deltas hold the pixels and line deltas are
+pixels/10 run through a sub-pixelator, so most frames report zero lines. Letting CoreGraphics fill
+those in rounds every frame up to a whole line and makes line-driven apps scroll several times too far.
+
 MouseDragFix builds a real `IOHIDEvent` of type DockSwipe (motion, flavor, progress + exit velocity)
 and attaches it to a CGEvent with SkyLight's `SLEventSetIOHIDEvent`, which WindowServer still animates
 in lockstep with the drag. Discrete actions use the Mission Control symbolic hotkeys (SkyLight
