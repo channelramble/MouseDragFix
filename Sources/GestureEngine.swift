@@ -12,7 +12,7 @@ final class GestureEngine {
     private var config: Config { SettingsStore.shared.config }
 
     let scrollEngine = ScrollEngine()
-    private let zoomStream = GestureStream(kind: .magnify)
+    private let zoomStream = ZoomStream()
     private let rotateStream = GestureStream(kind: .rotate)
     private var hold: Hold?
     private let dragScroll = DragScrollAnimator()
@@ -317,7 +317,7 @@ final class GestureEngine {
         guard ticks != 0 else { return }
         let reverse = config.scroll.reverse ? -1.0 : 1.0
         switch h.cfg.scroll {
-        case .zoom: zoomStream.add(ticks * 0.08 * reverse)          // wheel up = zoom in
+        case .zoom: zoomStream.add(ticks * reverse)                 // wheel up = zoom in
         case .rotate: rotateStream.add(ticks * 8 * reverse)
         case .switchSpaces:
             let now = CACurrentMediaTime()

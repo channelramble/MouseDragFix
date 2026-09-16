@@ -23,7 +23,11 @@ A Mac Mouse Fix-style mouse enhancer for **macOS 27**, written because Mac Mouse
   (a 110–180 ms linear step per notch plus an inertia tail; High smoothness adds trackpad momentum).
   Off / Regular / High smoothness, Low / Medium / High speed, reverse direction. Defaults are Mac Mouse
   Fix's stock High smoothness (trackpad simulation with momentum) at Medium speed.
-- Modifier keys: ⇧ horizontal, ⌥ precise, ⌃ swift, ⌘ zoom (pinch gesture).
+- Modifier keys: ⇧ horizontal, ⌥ precise, ⌃ swift, ⌘ zoom (real pinch gesture).
+
+Chromium browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc) ignore a large amount of pinch before
+they start zooming, so the first event of each gesture gets a compensating kick when the pointer is
+over one of them, the same way Mac Mouse Fix does it.
 
 **Pointer**
 - Speed and acceleration per mouse (acceleration 0 = linear), applied through the HID event

@@ -11,7 +11,7 @@ import Cocoa
 final class ScrollEngine {
     enum Mode { case normal, horizontal, precise, swift }
     private var cfg: ScrollConfig { SettingsStore.shared.config.scroll }
-    private let zoom = GestureStream(kind: .magnify)
+    private let zoom = ZoomStream()
 
     // Tick analysis (Mac Mouse Fix constants)
     private let tickIntervalMax = 0.160          // slower than this = not consecutive
@@ -62,7 +62,7 @@ final class ScrollEngine {
         if forced == nil {
             if flags.contains(.maskCommand), cfg.modZoom {
                 if sequenceOpen || !x.isIdle || !y.isIdle { stopAnimation() }
-                zoom.add(ticksY * 0.06 * (cfg.reverse ? -1 : 1))
+                zoom.add(ticksY * (cfg.reverse ? -1 : 1))
                 return true
             }
             if flags.contains(.maskControl), cfg.modSwift { mode = .swift; used = .maskControl }
