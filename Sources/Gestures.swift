@@ -4,64 +4,91 @@ import Cocoa
 /// smart zoom, navigation swipe. Posted with the same private CGEvent fields Mac Mouse Fix uses.
 /// Pinch-zoom for the scroll-wheel Zoom effects, following Mac Mouse Fix.
 ///
-/// Magnification is animated pixels / 800. Chromium browsers swallow a large amount of pinch before
-/// they begin zooming at all, so like Mac Mouse Fix we detect them under the pointer and add a big
-/// kick to the first event of each gesture; without it, wheel zoom appears to do nothing in Chrome,
-/// Brave, Edge, Vivaldi, Opera and Arc.
+/// Magnification is pixels / 800, and one wheel notch is animated over 250 ms at 120 Hz the way
+/// Mac Mouse Fix animates its touch-driver curve. Emitting the zoom in a few large steps instead
+/// makes it visibly jagged, since each event is an instant scale change in the receiving app.
 final class ZoomStream {
-    /// Pixels of scroll one wheel notch is worth, converted to magnification by Mac Mouse Fix's /800.
+    private let duration = 0.25                       // Mac Mouse Fix animates one notch over 250 ms
+    private let frameInterval = 1.0 / 120.0
     private let pixelsPerNotch = 90.0
     private let pixelsPerMagnification = 800.0
+    /// Chromium swallows this much magnification at the start of each pinch before it reacts at all
+    /// (measured: 0.3 spread over a gesture produces no zoom in Brave). Mac Mouse Fix pays it off in a
+    /// single event, which is invisible precisely because it is swallowed, and the animation after it
+    /// then zooms smoothly. Paying it gradually instead just delays the start.
     private let chromiumKickIn = 380.0 / 800.0
     private let chromiumKickOut = -250.0 / 800.0
-    /// Consecutive notches must stay inside one gesture; otherwise every notch re-applies the
-    /// Chromium kick and the page zooms far too fast.
+    /// Consecutive notches must land inside one gesture, or each one pays the dead zone again and the
+    /// zoom lurches instead of gliding.
     private let idleBeforeEnd = 0.25
 
-    private var remaining = 0.0
+    private let queue = DispatchQueue(label: "com.wateruse.MouseDragFix.zoom", qos: .userInteractive)
+    private var timer: DispatchSourceTimer?
+    private var remaining = 0.0        // magnification still to deliver
+    private var speed = 0.0            // magnification per second
     private var open = false
-    private var chromium = false
-    private var timer: Timer?
+    private var pendingKick = 0.0     // Chromium dead-zone payment for the gesture about to start
     private var idleSince: CFTimeInterval = 0
+    private var lastFrame: CFTimeInterval = 0
 
-    /// `notches` is signed: positive zooms in.
+    /// `notches` is signed: positive zooms in. Called from the event tap on the main thread.
     func add(_ notches: Double) {
         guard notches != 0 else { return }
         let delta = notches * pixelsPerNotch / pixelsPerMagnification
-        if remaining != 0, remaining.sign != delta.sign { remaining = 0 }
-        remaining += delta
-        idleSince = CACurrentMediaTime()
-        if timer == nil {
-            let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.tick() }
-            RunLoop.main.add(t, forMode: .common)
-            timer = t
+        // Decide on the main thread, where looking up the window under the pointer is safe.
+        let kick = (timer == nil && !open && ZoomStream.chromiumUnderPointer())
+            ? (delta > 0 ? chromiumKickIn : chromiumKickOut) : 0
+        queue.async { [self] in
+            if kick != 0, !open { pendingKick = kick }
+            if remaining != 0, remaining.sign != delta.sign { remaining = 0 }   // reversing direction
+            remaining += delta
+            speed = remaining / duration                                        // linear restart
+            idleSince = CACurrentMediaTime()
+            if timer == nil {
+                lastFrame = idleSince
+                let t = DispatchSource.makeTimerSource(queue: queue)
+                t.schedule(deadline: .now() + frameInterval, repeating: frameInterval, leeway: .milliseconds(1))
+                t.setEventHandler { [weak self] in self?.frame() }
+                t.resume()
+                timer = t
+            }
         }
     }
 
     func finish() {
-        if open { Gestures.magnify(0, phase: 4); open = false }
-        remaining = 0
-        timer?.invalidate(); timer = nil
+        queue.async { [self] in
+            if open { Gestures.magnify(0, phase: 4); open = false }
+            remaining = 0; speed = 0; pendingKick = 0
+            timer?.cancel(); timer = nil
+        }
     }
 
-    private func tick() {
+    private func frame() {
+        let now = CACurrentMediaTime()
+        let dt = min(4 * frameInterval, max(0.001, now - lastFrame))
+        lastFrame = now
+
         if remaining != 0 {
-            var step = remaining * 0.5
-            if abs(remaining) < 0.004 { step = remaining }
+            var step = speed * dt
+            if abs(step) >= abs(remaining) { step = remaining }
             remaining -= step
-            if !open {
-                chromium = ZoomStream.chromiumUnderPointer()
+            if open {
+                Gestures.magnify(step, phase: 2)
+            } else {
                 Gestures.magnify(step, phase: 1)
-                if chromium {
-                    // Chromium ignores the first delta and needs a lot of pinch before it reacts.
-                    Gestures.magnify(step + (step > 0 ? chromiumKickIn : chromiumKickOut), phase: 2)
+                if pendingKick != 0 {
+                    Gestures.magnify(step + pendingKick, phase: 2)   // swallowed by Chromium
+                    pendingKick = 0
                 }
                 open = true
-            } else {
-                Gestures.magnify(step, phase: 2)
             }
-        } else if open, CACurrentMediaTime() - idleSince > idleBeforeEnd {
-            finish()
+            idleSince = now
+        } else if open, now - idleSince > idleBeforeEnd {
+            Gestures.magnify(0, phase: 4)
+            open = false
+            timer?.cancel(); timer = nil
+        } else if !open {
+            timer?.cancel(); timer = nil
         }
     }
 
@@ -83,9 +110,7 @@ final class ZoomStream {
                   let b = w[kCGWindowBounds as String] as? [String: CGFloat],
                   let pid = w[kCGWindowOwnerPID as String] as? pid_t else { continue }
             let rect = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
-            if rect.contains(cursor) {
-                return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
-            }
+            if rect.contains(cursor) { return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier }
         }
         return nil
     }
