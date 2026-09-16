@@ -38,6 +38,7 @@ final class DockSwipe {
     private(set) var isActive = false
     private var pendingDelta = 0.0
     private var frameTimer: Timer?
+    private var lastInputDelta = 0.0   // progress from the last single mouse report (drives the exit velocity)
 
     private init() {
         func sym<T>(_ lib: String, _ name: String, _: T.Type) -> T? {
@@ -63,7 +64,7 @@ final class DockSwipe {
         resendTimers.forEach { $0.invalidate() }; resendTimers.removeAll()
         self.kind = kind
         offset = 0; lastDelta = 0; started = false; isActive = true
-        pendingDelta = 0
+        pendingDelta = 0; lastInputDelta = 0
         frameTimer?.invalidate()
         let t = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in self?.flush() }
         RunLoop.main.add(t, forMode: .common)
@@ -86,7 +87,9 @@ final class DockSwipe {
     /// Feeds pointer movement. Drag left reveals the Space on the right; drag up opens Mission Control.
     func update(dx: Double, dy: Double) {
         guard isActive else { return }
-        pendingDelta += kind == .horizontal ? dx * scale : -dy * scale
+        let d = kind == .horizontal ? dx * scale : -dy * scale
+        pendingDelta += d
+        if d != 0 { lastInputDelta = d }
         if !started { flush() }   // first movement goes out immediately so the gesture begins without delay
     }
 
@@ -97,7 +100,9 @@ final class DockSwipe {
         pendingDelta = 0
         if d == 0 && started { return }
         offset += d
-        if d != 0 { lastDelta = d }
+        // Exit velocity must come from one mouse report, not a whole coalesced frame, or WindowServer
+        // gets an 8× flick at 1000 Hz and overshoots.
+        lastDelta = lastInputDelta
         post(phase: started ? .changed : .began)
         started = true
     }
@@ -122,7 +127,7 @@ final class DockSwipe {
     // MARK: Posting
 
     private func post(phase: Phase) {
-        if HotKeyPoster.dryRun { Log.info("DRYRUN dockswipe kind=\(kind) phase=\(phase) offset=\(String(format: "%.3f", offset))"); return }
+        if HotKeyPoster.dryRun { Log.info("DRYRUN dockswipe kind=\(kind) phase=\(phase) offset=\(String(format: "%.3f", offset)) exitSpeed=\(String(format: "%.2f", lastDelta * 100))"); return }
         guard let create, let setInt, let setDouble, let append, let setHID,
               let ev = create(nil, typeDockSwipe, 0, phase.rawValue << phaseShift)?.takeRetainedValue() else { return }
         setInt(ev, fieldMotion, kind.rawValue)
