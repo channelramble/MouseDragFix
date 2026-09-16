@@ -41,10 +41,10 @@ final class GestureEngine {
         // velocity is the last delivered delta divided by the time since the previous input.
         var scrollPending = (x: 0.0, y: 0.0)      // px received but not yet emitted
         var scrollTimer: Timer?
-        var lastInputTime: CFTimeInterval = 0
-        var lastInputDelta = (x: 0.0, y: 0.0)
-        var lastInputInterval = Double.greatestFiniteMagnitude
         var scrollCarry = (x: 0.0, y: 0.0)
+        var lastFrameTime: CFTimeInterval = 0
+        var lastOutputTime: CFTimeInterval = 0     // last frame that actually moved
+        var frameVelocity = (x: 0.0, y: 0.0)       // px/s of the last moving frame (smoothed output)
         // Fallback (hotkey-based Spaces switching when dock swipes are unavailable)
         var spaceAcc = 0.0, spaceFires = 0, lastSpaceFire: CFTimeInterval = 0, verticalFired = false
         init(button: Int, cfg: ButtonConfig, start: CGPoint, clickCount: Int) {
@@ -237,21 +237,23 @@ final class GestureEngine {
     }
 
     private func dragScrollInput(_ h: Hold, dx: Double, dy: Double) {
-        let now = CACurrentMediaTime()
-        if h.lastInputTime != 0 { h.lastInputInterval = now - h.lastInputTime }
-        h.lastInputTime = now
-        h.lastInputDelta = (dx, dy)
         h.scrollPending.x += dx; h.scrollPending.y += dy
     }
 
     /// Emits the smoothed drag-to-scroll movement: one third of what is pending per frame
     /// (a 3-frame linear ramp, as in Mac Mouse Fix), so 1000 Hz input becomes 120 Hz output.
     private func dragScrollFrame(_ h: Hold) {
+        let now = CACurrentMediaTime()
+        let dt = h.lastFrameTime == 0 ? 1.0 / 120.0 : min(0.05, now - h.lastFrameTime)
+        h.lastFrameTime = now
         guard h.scrollPending.x != 0 || h.scrollPending.y != 0 else { return }
         var ex = h.scrollPending.x / 3, ey = h.scrollPending.y / 3
         if abs(h.scrollPending.x) < 3 { ex = h.scrollPending.x }
         if abs(h.scrollPending.y) < 3 { ey = h.scrollPending.y }
         h.scrollPending.x -= ex; h.scrollPending.y -= ey
+        // Velocity from the smoothed frame output (like Mac Mouse Fix), never from single 1 ms mouse reports.
+        h.frameVelocity = (ex / dt, ey / dt)
+        h.lastOutputTime = now
         let fx = ex + h.scrollCarry.x, fy = ey + h.scrollCarry.y
         let ix = fx.rounded(.towardZero), iy = fy.rounded(.towardZero)
         h.scrollCarry = (fx - ix, fy - iy)
@@ -317,10 +319,9 @@ final class GestureEngine {
                 if rx.rounded() != 0 || ry.rounded() != 0 { postScroll(dx: rx.rounded(), dy: ry.rounded(), phase: .changed) }
                 postScroll(dx: 0, dy: 0, phase: .ended)
                 if config.dragScrollMomentum {
-                    let since = CACurrentMediaTime() - h.lastInputTime
                     // No momentum when the pointer had already stopped before the button came up.
-                    if since <= 0.1, h.lastInputInterval > 0, h.lastInputInterval < 0.1 {
-                        startMomentum(vx: h.lastInputDelta.x / h.lastInputInterval, vy: h.lastInputDelta.y / h.lastInputInterval)
+                    if CACurrentMediaTime() - h.lastOutputTime <= 0.1 {
+                        startMomentum(vx: h.frameVelocity.x, vy: h.frameVelocity.y)
                     }
                 }
             case .off: break
