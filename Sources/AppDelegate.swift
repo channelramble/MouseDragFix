@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let pids = Set(NSWorkspace.shared.runningApplications
             .filter { $0.bundleIdentifier?.lowercased().contains("mac-mouse-fix") == true }
             .map(\.processIdentifier))
+        if status.macMouseFixRunning != !pids.isEmpty { status.macMouseFixRunning = !pids.isEmpty }
         let newPids = pids.subtracting(knownHelperPids)
         knownHelperPids = pids
         guard helperWatchPrimed else { helperWatchPrimed = true; return }   // instances running before us are already behind our tap
@@ -34,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "computermouse", accessibilityDescription: "MouseDragFix")
             button.image?.isTemplate = true
+            button.toolTip = "MouseDragFix: click to pause it or open Settings"
         }
         let menu = NSMenu()
         menu.delegate = self
@@ -60,9 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         helperWatch = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.checkMacMouseFixHelper() }
         checkMacMouseFixHelper()
 
+        // First launch, or permission still missing: open on the Guide, which walks through both.
         let first = !UserDefaults.standard.bool(forKey: "hasLaunchedBefore")
         UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
-        if first || !status.accessibilityTrusted { showSettings() }
+        if first || !status.accessibilityTrusted { showWindow(.guide) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -71,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showSettings(); return true
+        showWindow(status.accessibilityTrusted ? .general : .guide); return true
     }
 
     // MARK: Accessibility
@@ -93,7 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Settings window
 
-    @objc func showSettings() {
+    @objc func showSettings() { showWindow(.general) }
+    @objc func showGuide() { showWindow(.guide) }
+    @objc private func allowAccessibility() { openAccessibilitySettings(); showWindow(.guide) }
+
+    private func showWindow(_ tab: SettingsTab) {
+        status.selectedTab = tab
         if settingsWindow == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 620),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -115,24 +123,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let enabled = NSMenuItem(title: "Enabled", action: #selector(toggleEnabled), keyEquivalent: "")
+        let enabled = NSMenuItem(title: "Enable MouseDragFix", action: #selector(toggleEnabled), keyEquivalent: "")
         enabled.target = self; enabled.state = store.config.enabled ? .on : .off
+        enabled.toolTip = "Pause or resume MouseDragFix without quitting it."
         menu.addItem(enabled)
+
         let statusText: String
-        if !status.accessibilityTrusted { statusText = "Accessibility permission needed" }
-        else if engine.isRunning { statusText = "Listening for mouse input" }
-        else { statusText = engine.lastError ?? "Not running" }
+        if !status.accessibilityTrusted { statusText = "Needs Accessibility access to work" }
+        else if !store.config.enabled { statusText = "Paused: your mouse works normally" }
+        else if engine.isRunning { statusText = "Active: your mouse is customized" }
+        else { statusText = engine.lastError ?? "Not running. Quit and open it again." }
         let s = NSMenuItem(title: statusText, action: nil, keyEquivalent: ""); s.isEnabled = false
         menu.addItem(s)
+        if !status.accessibilityTrusted {
+            let allow = NSMenuItem(title: "Allow Accessibility Access…", action: #selector(allowAccessibility), keyEquivalent: "")
+            allow.target = self
+            allow.toolTip = "Opens System Settings and shows the steps to turn it on."
+            menu.addItem(allow)
+        }
+        if status.macMouseFixRunning {
+            let warn = NSMenuItem(title: "Mac Mouse Fix is also running", action: #selector(showGuide), keyEquivalent: "")
+            warn.target = self
+            warn.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
+            warn.toolTip = "Both apps react to the same buttons and scrolling. Quit Mac Mouse Fix or turn off its Buttons and Scrolling switches."
+            menu.addItem(warn)
+        }
         menu.addItem(.separator())
+
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
+        settings.toolTip = "Choose what your buttons, scroll wheel and pointer do."
         menu.addItem(settings)
+        let guide = NSMenuItem(title: "How to Use MouseDragFix…", action: #selector(showGuide), keyEquivalent: "")
+        guide.target = self
+        guide.toolTip = "Getting started, what your mouse does right now, and fixes for common problems."
+        menu.addItem(guide)
         menu.addItem(.separator())
+
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
         let about = NSMenuItem(title: "MouseDragFix \(version)", action: nil, keyEquivalent: ""); about.isEnabled = false
         menu.addItem(about)
         let quit = NSMenuItem(title: "Quit MouseDragFix", action: #selector(quit), keyEquivalent: "q"); quit.target = self
+        quit.toolTip = "Your mouse goes back to normal until you open MouseDragFix again."
         menu.addItem(quit)
     }
 

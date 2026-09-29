@@ -4,10 +4,24 @@ A Mac Mouse Fix-style mouse enhancer for **macOS 27**, written because Mac Mouse
 "Spaces & Mission Control" click-and-drag stopped working there
 ([noah-nuebling/mac-mouse-fix#1871](https://github.com/noah-nuebling/mac-mouse-fix/issues/1871)).
 
+## Quick start
+
+1. Download the latest zip from [Releases](https://github.com/channelramble/MouseDragFix/releases),
+   unzip it, and move **MouseDragFix** to your Applications folder.
+2. The first time, right-click the app and choose **Open**, then **Open** again (it isn't notarized).
+3. Allow **Accessibility** access when asked: System Settings › Privacy & Security › Accessibility,
+   turn on MouseDragFix. It starts working by itself a couple of seconds later.
+4. Try it: hold **Button 4** (usually the rear side button) and drag left or right to switch Desktops,
+   or hold **Button 5** and drag to scroll.
+
+MouseDragFix lives in the menu bar as a mouse icon. The **Guide** tab in its settings shows exactly what
+each button does right now, with tips and fixes for common problems. Anything you don't set up keeps
+working as before.
+
 ## Features
 
 **Buttons** (middle button and buttons 4–8, each configurable in Settings → Buttons)
-- Click, Double Click and Hold actions: Nothing, pass through, Middle Click, Back, Forward,
+- Click, Double Click and Hold actions: Nothing, Normal click, Middle Click, Back, Forward,
   Mission Control, App Exposé, Show Desktop, Launchpad/Apps, Move left/right a Space, Look Up,
   Smart Zoom, Spotlight, Notification Center, App Switcher, or any recorded keyboard shortcut.
 - Click and Drag: **Spaces & Mission Control** (a real three-finger swipe that follows the pointer,
@@ -35,6 +49,9 @@ over one of them, the same way Mac Mouse Fix does it.
 
 **General**: enable/disable, launch at login, freeze pointer during drags, Spaces natural direction and drag scale.
 
+**Guide**: a plain-language summary of what your mouse does right now, which button is which, and fixes
+for common problems. Every setting also explains itself underneath, and hovering shows a short tip.
+
 Defaults mirror the common Mac Mouse Fix setup: Button 4 click = Back, Button 4 drag = Spaces & Mission
 Control, Button 4 + wheel = Switch Spaces, Button 5 drag = Scroll & Navigate, Button 5 + wheel = Zoom.
 
@@ -58,6 +75,20 @@ page, unzip, and move `MouseDragFix.app` to `/Applications`. The app is signed w
 Development certificate and the hardened runtime but is **not notarized**, so on first launch
 right-click the app → **Open** → **Open** (or allow it under System Settings → Privacy & Security).
 Then grant **Accessibility** when prompted; the app starts listening automatically.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Nothing happens at all | Check that MouseDragFix is on in System Settings › Privacy & Security › Accessibility. After an update, select it, remove it with **−**, open MouseDragFix again and allow it once more. |
+| A button stopped doing its usual job | Its Click is probably set to **Nothing**. In Settings › Buttons, set it to **Normal click (no change)**. Button 5 is often the Forward button. |
+| A button does two things at once | Another mouse app (Mac Mouse Fix, Logi Options+, …) handles the same button. Turn it off there, or quit that app. |
+| Switching Desktops does nothing | You need at least two Desktops. Open Mission Control and click **+** at the top right. |
+| Zoom doesn't work in an app | Zoom acts like a trackpad pinch, so it only works in apps that support pinch-to-zoom. |
+| Pages bounce at the end | That's the trackpad feel of **High** smoothness. Choose **Regular** in Settings › Scrolling. |
+
+To pause everything without quitting, turn off **Enable MouseDragFix** in the menu bar. Quitting puts
+your mouse back to normal too.
 
 ## Build from source
 

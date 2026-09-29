@@ -159,4 +159,12 @@ final class DockSwipe {
         }
         return displays.reduce(0) { $0 + (($1["Spaces"] as? [[String: Any]])?.count ?? 0) }
     }
+
+    /// The most Desktops any one display has, or nil if macOS can't be asked. Used only to warn in
+    /// Settings when there is nowhere to swipe to.
+    func maxSpacesPerDisplay() -> Int? {
+        guard let mainCID, let copyManaged,
+              let displays = copyManaged(mainCID())?.takeRetainedValue() as? [[String: Any]] else { return nil }
+        return displays.map { ($0["Spaces"] as? [[String: Any]])?.count ?? 0 }.max()
+    }
 }

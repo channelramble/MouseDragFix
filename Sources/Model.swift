@@ -11,7 +11,7 @@ enum ButtonAction: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .none: return "Nothing"
-        case .passThrough: return "Pass through (native click)"
+        case .passThrough: return "Normal click (no change)"
         case .middleClick: return "Middle Click"
         case .back: return "Back"
         case .forward: return "Forward"
@@ -29,6 +29,60 @@ enum ButtonAction: String, Codable, CaseIterable, Identifiable {
         case .keyboardShortcut: return "Keyboard Shortcut…"
         }
     }
+
+    /// One-line explanation shown under the picker.
+    var detail: String {
+        switch self {
+        case .none: return "Ignores the press completely. Apps never see it."
+        case .passThrough: return "Sends this button's normal click, so it keeps its usual job."
+        case .middleClick: return "Acts like pressing the scroll wheel, for example to open a link in a new tab."
+        case .back: return "Goes back, like ⌘[ in browsers and Finder."
+        case .forward: return "Goes forward, like ⌘] in browsers and Finder."
+        case .missionControl: return "Shows all your open windows and Desktops."
+        case .appExpose: return "Shows every window of the app you're using."
+        case .showDesktop: return "Moves windows aside so you can see the desktop."
+        case .launchpad: return "Opens the grid of all your apps."
+        case .moveLeftSpace: return "Switches to the Desktop on the left."
+        case .moveRightSpace: return "Switches to the Desktop on the right."
+        case .lookUp: return "Looks up the word under the pointer."
+        case .smartZoom: return "Zooms in on what's under the pointer, like a two-finger double-tap on a trackpad."
+        case .spotlight: return "Opens Spotlight search."
+        case .notificationCenter: return "Opens Notification Center."
+        case .appSwitcher: return "Shows the app switcher, like pressing ⌘⇥."
+        case .keyboardShortcut: return "Presses a key combination you choose. Record it in the box below."
+        }
+    }
+
+    /// Completes "Click to …" in plain words, for the summary in the Guide tab.
+    func phrase(_ shortcut: KeyShortcut?) -> String {
+        switch self {
+        case .none: return "do nothing"
+        case .passThrough: return "click normally"
+        case .middleClick: return "middle-click"
+        case .back: return "go back"
+        case .forward: return "go forward"
+        case .missionControl: return "open Mission Control"
+        case .appExpose: return "show the current app's windows"
+        case .showDesktop: return "show the desktop"
+        case .launchpad: return "open Launchpad"
+        case .moveLeftSpace: return "move one Desktop left"
+        case .moveRightSpace: return "move one Desktop right"
+        case .lookUp: return "look up the word under the pointer"
+        case .smartZoom: return "smart zoom"
+        case .spotlight: return "open Spotlight"
+        case .notificationCenter: return "open Notification Center"
+        case .appSwitcher: return "show the app switcher"
+        case .keyboardShortcut: return shortcut.map { "press \($0.display)" } ?? "press a shortcut (none recorded yet)"
+        }
+    }
+
+    /// Menu order, grouped so related actions sit together.
+    static let groups: [[ButtonAction]] = [
+        [.passThrough, .none, .middleClick, .back, .forward],
+        [.missionControl, .appExpose, .showDesktop, .launchpad, .moveLeftSpace, .moveRightSpace],
+        [.lookUp, .smartZoom, .spotlight, .notificationCenter, .appSwitcher],
+        [.keyboardShortcut],
+    ]
 }
 
 enum DragEffect: String, Codable, CaseIterable, Identifiable {
@@ -39,6 +93,16 @@ enum DragEffect: String, Codable, CaseIterable, Identifiable {
         case .off: return "Off"
         case .spacesAndMissionControl: return "Spaces & Mission Control"
         case .scrollAndNavigate: return "Scroll & Navigate"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .off: return "No drag gesture for this button."
+        case .spacesAndMissionControl:
+            return "Drag left or right to switch Desktops. Drag up for Mission Control, or down to see the current app's windows. The screen follows your hand, like a three-finger trackpad swipe."
+        case .scrollAndNavigate:
+            return "Drag in any direction to scroll, like dragging two fingers on a trackpad. Let go while still moving and the page keeps gliding."
         }
     }
 }
@@ -58,12 +122,46 @@ enum ScrollEffect: String, Codable, CaseIterable, Identifiable {
         case .appSwitcher: return "App Switcher"
         }
     }
+
+    var detail: String {
+        switch self {
+        case .off: return "Scrolling while holding this button works normally."
+        case .zoom: return "Scroll up to zoom in and down to zoom out, like pinching on a trackpad. Works wherever pinch-to-zoom does, such as browsers, Maps and Preview."
+        case .rotate: return "Rotates photos and maps, like twisting two fingers on a trackpad."
+        case .switchSpaces: return "Each notch moves one Desktop over: scroll down to go right, up to go left."
+        case .swiftScroll: return "Each notch scrolls much farther, to get through long pages quickly."
+        case .preciseScroll: return "Each notch scrolls a small, even step, for careful positioning."
+        case .horizontalScroll: return "The wheel scrolls sideways instead of up and down."
+        case .appSwitcher: return "Opens the app switcher. Keep scrolling to pick an app, then let go of the button to switch to it."
+        }
+    }
+
+    /// Completes "Hold and scroll to …" for the summary in the Guide tab.
+    var phrase: String {
+        switch self {
+        case .off: return "scroll normally"
+        case .zoom: return "zoom in or out"
+        case .rotate: return "rotate"
+        case .switchSpaces: return "switch Desktops"
+        case .swiftScroll: return "scroll fast"
+        case .preciseScroll: return "scroll in small steps"
+        case .horizontalScroll: return "scroll sideways"
+        case .appSwitcher: return "switch apps"
+        }
+    }
 }
 
 enum Smoothing: String, Codable, CaseIterable, Identifiable {
     case off, regular, high
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
+    var detail: String {
+        switch self {
+        case .off: return "Each notch jumps straight to its new position, like a standard mouse."
+        case .regular: return "Each notch glides briefly, then stops cleanly. Pages don't bounce at their ends."
+        case .high: return "A longer, trackpad-like glide that coasts to a stop. Pages can bounce at their ends, just like with a trackpad."
+        }
+    }
     var timeConstant: Double { self == .high ? 0.12 : 0.06 }
 }
 
@@ -201,6 +299,44 @@ enum MouseButton {
         case 2: return "Middle Button"
         default: return "Button \(b + 1)"
         }
+    }
+
+    /// Short location, for people who don't know the numbering.
+    static func location(_ b: Int) -> String? {
+        switch b {
+        case 2: return "press the scroll wheel"
+        case 3: return "usually the rear side button"
+        case 4: return "usually the front side button"
+        default: return nil
+        }
+    }
+
+    /// Where to find the button on a typical mouse.
+    static func whereToFind(_ b: Int) -> String {
+        switch b {
+        case 2: return "The middle button is pressing down on the scroll wheel."
+        case 3: return "Button 4 is usually the rear side button, next to your thumb. Most mice use it for Back."
+        case 4: return "Button 5 is usually the front side button, next to your thumb. Most mice use it for Forward."
+        default: return "Button \(b + 1) is an extra button found on some gaming and productivity mice. If your mouse doesn't have one, you can ignore it."
+        }
+    }
+}
+
+extension ButtonConfig {
+    /// What this button does, in plain sentences, for the summary in the Guide tab.
+    var summaryLines: [String] {
+        var lines: [String] = []
+        if click == .none { lines.append("A plain click does nothing") }
+        else if click != .passThrough { lines.append("Click to \(click.phrase(clickShortcut))") }
+        if doubleClick != .none { lines.append("Double-click to \(doubleClick.phrase(doubleClickShortcut))") }
+        if hold != .none { lines.append("Hold to \(hold.phrase(holdShortcut))") }
+        switch drag {
+        case .off: break
+        case .spacesAndMissionControl: lines.append("Hold and drag sideways to switch Desktops, up for Mission Control, down for App Exposé")
+        case .scrollAndNavigate: lines.append("Hold and drag to scroll, like two fingers on a trackpad")
+        }
+        if scroll != .off { lines.append("Hold and scroll to \(scroll.phrase)") }
+        return lines
     }
 }
 

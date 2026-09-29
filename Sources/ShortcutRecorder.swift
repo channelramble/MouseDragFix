@@ -19,7 +19,7 @@ struct ShortcutRecorder: NSViewRepresentable {
         private var recording = false { didSet { needsDisplay = true } }
 
         override var acceptsFirstResponder: Bool { true }
-        override var intrinsicContentSize: NSSize { NSSize(width: 150, height: 24) }
+        override var intrinsicContentSize: NSSize { NSSize(width: 190, height: 24) }
         override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self); recording = true }
         override func resignFirstResponder() -> Bool { recording = false; return true }
 
@@ -61,7 +61,7 @@ struct ShortcutRecorder: NSViewRepresentable {
             path.fill()
             (recording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
             path.stroke()
-            let text = recording ? "Type shortcut…" : (shortcut?.display ?? "Click to record")
+            let text = recording ? "Press keys… (Esc cancels)" : (shortcut?.display ?? "Click, then press keys")
             let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12),
                                                         .foregroundColor: recording || shortcut != nil ? NSColor.labelColor : NSColor.secondaryLabelColor]
             let size = text.size(withAttributes: attrs)
