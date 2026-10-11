@@ -1,20 +1,31 @@
 import Cocoa
 import QuartzCore
 
-/// Owns the CGEvent tap and the per-button state machine:
+/// Owns the CGEvent taps and the per-button state machine:
 /// click / double click / hold actions, click-and-drag effects, click-and-scroll effects,
 /// plus routing of plain scroll-wheel events to the ScrollEngine.
 final class GestureEngine {
     private(set) var isRunning = false
     private(set) var lastError: String?
-    private var tap: CFMachPort?
-    private var source: CFRunLoopSource?
+    // Every event an active tap receives waits for this process, and macOS runs it at background
+    // priority (ps -M shows 4) whenever Game Mode is on. So the active taps only take what they
+    // consume or rewrite: the extra buttons always, the wheel only while it is rewritten.
+    private var buttonTap: CFMachPort?
+    private var wheelTap: CFMachPort?
+    private var wheelTapEnabled = false
+    private var wheelTapUpdatePending = false
+    // Left/right clicks and wheel turns only need watching (they stop drag-to-scroll momentum),
+    // so they go to a listen-only tap that the system never waits for.
+    private var listenTap: CFMachPort?
+    private var taps: [(tap: CFMachPort, source: CFRunLoopSource)] = []   // everything makeTap created
     private var config: Config { SettingsStore.shared.config }
 
     let scrollEngine = ScrollEngine()
     private let zoomStream = ZoomStream()
     private let rotateStream = GestureStream(kind: .rotate)
-    private var hold: Hold?
+    private var hold: Hold? {
+        didSet { if hold !== oldValue { scheduleWheelTapUpdate() } }   // click-and-scroll needs the wheel
+    }
     private let dragScroll = DragScrollAnimator()
     private var lastClick: (button: Int, time: CFTimeInterval, count: Int)?
     private var pendingClick: (timer: DispatchWorkItem, run: () -> Void)?
@@ -49,25 +60,36 @@ final class GestureEngine {
 
     func start() {
         guard !isRunning else { return }
-        let types: [CGEventType] = [.otherMouseDown, .otherMouseUp, .otherMouseDragged,
-                                    .leftMouseDown, .rightMouseDown, .scrollWheel]
-        let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
-        let callback: CGEventTapCallBack = { _, type, event, refcon in
+        let buttons: CGEventTapCallBack = { _, type, event, refcon in
+            Unmanaged<GestureEngine>.fromOpaque(refcon!).takeUnretainedValue().handle(type: type, event: event)
+        }
+        let wheel: CGEventTapCallBack = { _, type, event, refcon in
             let engine = Unmanaged<GestureEngine>.fromOpaque(refcon!).takeUnretainedValue()
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                engine.wheelTapEnabled = false
+                engine.updateWheelTap()   // back on only if the wheel is still being rewritten
+                return Unmanaged.passUnretained(event)
+            }
             return engine.handle(type: type, event: event)
         }
-        guard let tap = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap,
-                                          options: .defaultTap, eventsOfInterest: mask,
-                                          callback: callback,
-                                          userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
+        let watch: CGEventTapCallBack = { _, type, event, refcon in
+            Unmanaged<GestureEngine>.fromOpaque(refcon!).takeUnretainedValue().observe(type: type, event: event)
+            return Unmanaged.passUnretained(event)
+        }
+        guard let buttonTap = makeTap([.otherMouseDown, .otherMouseUp, .otherMouseDragged], .defaultTap, buttons),
+              let wheelTap = makeTap([.scrollWheel], .defaultTap, wheel),
+              let listenTap = makeTap([.leftMouseDown, .rightMouseDown, .scrollWheel], .listenOnly, watch) else {
+            stop()
             lastError = "Could not create the event tap (Accessibility permission missing?)"
             Log.info(lastError!)
             return
         }
-        self.tap = tap
-        source = CFMachPortCreateRunLoopSource(nil, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        self.buttonTap = buttonTap; self.wheelTap = wheelTap; self.listenTap = listenTap
+        CGEvent.tapEnable(tap: buttonTap, enable: true)
+        CGEvent.tapEnable(tap: listenTap, enable: true)
+        CGEvent.tapEnable(tap: wheelTap, enable: false)
+        wheelTapEnabled = false
+        updateWheelTap()
         isRunning = true
         lastError = nil
         Log.info("event tap running (dock swipes: \(DockSwipe.shared.available), SkyLight hotkeys: \(SkyLight.available))")
@@ -76,9 +98,56 @@ final class GestureEngine {
     func stop() {
         cancelHold()
         dragScroll.cancel()
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
-        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        tap = nil; source = nil; isRunning = false
+        for (tap, source) in taps {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            CFMachPortInvalidate(tap)   // releasing it alone leaves a dead tap registered in WindowServer
+        }
+        taps = []; buttonTap = nil; wheelTap = nil; listenTap = nil
+        wheelTapEnabled = false; isRunning = false
+    }
+
+    /// A HID-level tap ahead of other apps' taps (Mac Mouse Fix's included), serviced on the main run loop.
+    private func makeTap(_ types: [CGEventType], _ options: CGEventTapOptions, _ callback: CGEventTapCallBack) -> CFMachPort? {
+        let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
+        guard let tap = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: options,
+                                          eventsOfInterest: mask, callback: callback,
+                                          userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return nil }
+        guard let source = CFMachPortCreateRunLoopSource(nil, tap, 0) else { CFMachPortInvalidate(tap); return nil }
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        taps.append((tap, source))
+        return tap
+    }
+
+    /// Wheel events only wait for MouseDragFix while it rewrites them: smooth scrolling, or a held button
+    /// with a click-and-scroll effect. The rest of the time the wheel tap is off and they pass straight through.
+    func updateWheelTap() {
+        guard let wheelTap else { return }
+        let needed = config.enabled && (config.scroll.enabled || (hold?.cfg.scroll ?? .off) != .off)
+        guard needed != wheelTapEnabled else { return }
+        CGEvent.tapEnable(tap: wheelTap, enable: needed)
+        wheelTapEnabled = needed
+    }
+
+    /// Switching a tap on or off is a round trip to WindowServer (about 0.5 ms, up to 4 ms measured), so it
+    /// runs once the current event has been answered rather than inside the tap callback.
+    private func scheduleWheelTapUpdate() {
+        guard !wheelTapUpdatePending else { return }
+        wheelTapUpdatePending = true
+        DispatchQueue.main.async { [weak self] in
+            self?.wheelTapUpdatePending = false
+            self?.updateWheelTap()
+        }
+    }
+
+    /// The listen-only tap: a left or right click, or a wheel turn, ends a drag-to-scroll's momentum.
+    private func observe(type: CGEventType, event: CGEvent) {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let listenTap { CGEvent.tapEnable(tap: listenTap, enable: true) }
+            return
+        }
+        guard config.enabled, event.getIntegerValueField(.eventSourceUserData) != HotKeyPoster.eventTag else { return }
+        dragScroll.cancel()
     }
 
     // MARK: Event tap
@@ -88,7 +157,7 @@ final class GestureEngine {
 
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             Log.info("tap disabled (\(type.rawValue)), re-enabling")
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            if let buttonTap { CGEvent.tapEnable(tap: buttonTap, enable: true) }
             cancelHold() // a button-up may have been missed while the tap was off
             return pass
         }
@@ -103,10 +172,6 @@ final class GestureEngine {
         guard config.enabled else { return pass }
 
         switch type {
-        case .leftMouseDown, .rightMouseDown:
-            dragScroll.cancel()
-            return pass
-
         case .scrollWheel:
             if let h = hold, h.cfg.scroll != .off, !h.dragStarted, event.getIntegerValueField(.scrollWheelEventIsContinuous) == 0 {
                 h.usedAsScrollModifier = true
@@ -114,8 +179,7 @@ final class GestureEngine {
                 modifiedScroll(h, event: event)
                 return nil
             }
-            dragScroll.cancel()
-            return scrollEngine.handle(event, forced: nil) ? nil : pass
+            return scrollEngine.handle(event, forced: nil) ? nil : pass   // the listen tap stops drag-to-scroll
 
         case .otherMouseDown:
             let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))

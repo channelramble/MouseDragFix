@@ -55,6 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         store.$config.map(\.pointer).removeDuplicates().sink { PointerSpeed.shared.apply($0) }.store(in: &cancellables)
         // Disabling mid-press must not leave a gesture, ⌘ key or frozen pointer behind.
         store.$config.map(\.enabled).removeDuplicates().sink { [weak self] on in if !on { self?.engine.cancelHold() } }.store(in: &cancellables)
+        // The wheel only goes through MouseDragFix while smooth scrolling is on (or a click-and-scroll button is
+        // held). @Published sends the new value before storing it, so the engine reads the config a turn later.
+        store.$config.map { $0.enabled && $0.scroll.enabled }.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.engine.updateWheelTap() }.store(in: &cancellables)
 
         // Mac Mouse Fix's helper also taps mouse buttons at the HID level. It is relaunched by launchd
         // (no NSWorkspace launch notification), so watch its process ids and re-create our tap whenever a

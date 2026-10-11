@@ -104,8 +104,8 @@ produces the zip archive published on the Releases page.
 ## Using it alongside Mac Mouse Fix
 
 Turn off Mac Mouse Fix's **Buttons** and **Scrolling** switches (menu-bar icon) or quit it, so the two
-apps don't both act on the same input. MouseDragFix inserts its event tap ahead of Mac Mouse Fix's and
-re-inserts it whenever a new Mac Mouse Fix helper process appears (polled every 3 s, since launchd
+apps don't both act on the same input. MouseDragFix inserts its event taps ahead of Mac Mouse Fix's and
+re-inserts them whenever a new Mac Mouse Fix helper process appears (polled every 3 s, since launchd
 relaunches the helper without a launch notification).
 
 ## Known behaviour
@@ -114,6 +114,11 @@ relaunches the helper without a launch notification).
   binding and enables it (same as Mac Mouse Fix); real keys are unaffected.
 - Back / Forward send ⌘[ and ⌘] rather than a navigation swipe, which covers Safari, Chrome, Brave and Finder.
 - Pointer speed/acceleration originals are saved; if the app is killed with SIGKILL, the next launch restores them.
+- **Games:** while a game runs full screen, macOS Game Mode runs every other app at background priority,
+  MouseDragFix included. So that this never delays your input, left and right clicks don't wait for
+  MouseDragFix at all, and the scroll wheel only goes through it while **Smooth scrolling for mouse wheels**
+  is on or you hold a button with a click-and-scroll effect. Buttons you've set up still go through it. To
+  keep the wheel out of the way in games, turn smooth scrolling off in the Scrolling tab.
 
 ## Debugging
 
