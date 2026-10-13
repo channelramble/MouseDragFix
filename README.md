@@ -38,6 +38,9 @@ working as before.
   Off / Regular / High smoothness, Low / Medium / High speed, reverse direction. Defaults are Mac Mouse
   Fix's stock High smoothness (trackpad simulation with momentum) at Medium speed.
 - Modifier keys: ⇧ horizontal, ⌥ precise, ⌃ swift, ⌘ zoom (real pinch gesture).
+- Per-app off switch: pick apps under **Apps without smooth scrolling** (from the apps open now or your
+  Applications folder), or use **Smooth Scrolling in <app>** in the menu bar while that app is in front.
+  While a listed app is in front, the wheel skips MouseDragFix entirely; hold-and-scroll button effects still work.
 
 Chromium browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc) ignore a large amount of pinch before
 they start zooming, so the first event of each gesture gets a compensating kick when the pointer is
@@ -118,7 +121,7 @@ relaunches the helper without a launch notification).
   MouseDragFix included. So that this never delays your input, left and right clicks don't wait for
   MouseDragFix at all, and the scroll wheel only goes through it while **Smooth scrolling for mouse wheels**
   is on or you hold a button with a click-and-scroll effect. Buttons you've set up still go through it. To
-  keep the wheel out of the way in games, turn smooth scrolling off in the Scrolling tab.
+  keep the wheel out of the way in a game, add it under **Apps without smooth scrolling** in the Scrolling tab.
 
 ## Debugging
 

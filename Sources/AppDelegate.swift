@@ -59,6 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // held). @Published sends the new value before storing it, so the engine reads the config a turn later.
         store.$config.map { $0.enabled && $0.scroll.enabled }.removeDuplicates().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.engine.updateWheelTap() }.store(in: &cancellables)
+        // Smooth scrolling is off while an app from the Scrolling tab's list is in front.
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
+            .sink { [weak self] note in
+                self?.updateFrontApp(note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)
+            }.store(in: &cancellables)
+        store.$config.map(\.scroll.excludedApps).removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateFrontApp() }.store(in: &cancellables)
 
         // Mac Mouse Fix's helper also taps mouse buttons at the HID level. It is relaunched by launchd
         // (no NSWorkspace launch notification), so watch its process ids and re-create our tap whenever a
@@ -70,6 +77,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let first = !UserDefaults.standard.bool(forKey: "hasLaunchedBefore")
         UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
         if first || !status.accessibilityTrusted { showWindow(.guide) }
+    }
+
+    private func updateFrontApp(_ app: NSRunningApplication? = NSWorkspace.shared.frontmostApplication) {
+        let off = store.config.scroll.excludes(app?.excludedAppID)
+        if off != engine.scrollEngine.suspended { Log.info("smooth scrolling \(off ? "off" : "on") for \(app?.localizedName ?? "?")") }
+        engine.setSmoothScrollingSuspended(off)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -152,6 +165,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             warn.toolTip = "Both apps react to the same buttons and scrolling. Quit Mac Mouse Fix or turn off its Buttons and Scrolling switches."
             menu.addItem(warn)
         }
+        // The status menu doesn't activate MouseDragFix, so the app in front is still the one being used.
+        if store.config.enabled, store.config.scroll.enabled,
+           let front = NSWorkspace.shared.frontmostApplication, front != .current, let app = ExcludedApp(front) {
+            menu.addItem(.separator())
+            let item = NSMenuItem(title: "Smooth Scrolling in \(app.name)", action: #selector(toggleSmoothScrolling(_:)), keyEquivalent: "")
+            item.target = self; item.representedObject = app
+            item.state = store.config.scroll.excludes(app.id) ? .off : .on
+            item.toolTip = "Turn off to leave the scroll wheel exactly as macOS does it whenever \(app.name) is in front. Manage the list in Settings › Scrolling."
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
 
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
@@ -173,5 +196,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleEnabled() { store.config.enabled.toggle() }
+    @objc private func toggleSmoothScrolling(_ sender: NSMenuItem) {
+        guard let app = sender.representedObject as? ExcludedApp else { return }
+        if store.config.scroll.excludes(app.id) { store.config.scroll.excludedApps.removeAll { $0.id == app.id } }
+        else { store.config.scroll.excludedApps.append(app) }
+    }
     @objc private func quit() { NSApp.terminate(nil) }
 }

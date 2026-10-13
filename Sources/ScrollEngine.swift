@@ -40,12 +40,18 @@ final class ScrollEngine {
     private var outFlags: CGEventFlags = []
     private var activeMode: Mode = .normal
 
+    /// Set while an app from the Scrolling tab's list is in front: plain wheel events pass through untouched.
+    /// Hold-and-scroll effects (`forced`) keep working.
+    var suspended = false {
+        didSet { if suspended, !oldValue { stopAnimation() } }
+    }
+
     // MARK: Input
 
     /// Returns true when the event was consumed and replaced by our output.
     /// `forced` is set for click-and-scroll effects and bypasses the modifier-key logic.
     func handle(_ event: CGEvent, forced: Mode?) -> Bool {
-        guard forced != nil || cfg.enabled else { return false }
+        guard forced != nil || (cfg.enabled && !suspended) else { return false }
         guard event.getIntegerValueField(.scrollWheelEventIsContinuous) == 0 else { return false }
         // One notch per event. macOS inflates the delta for fast spins; Mac Mouse Fix only uses its sign
         // and derives the distance from tick timing, so we do the same.

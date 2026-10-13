@@ -119,14 +119,23 @@ final class GestureEngine {
         return tap
     }
 
-    /// Wheel events only wait for MouseDragFix while it rewrites them: smooth scrolling, or a held button
-    /// with a click-and-scroll effect. The rest of the time the wheel tap is off and they pass straight through.
+    /// Wheel events only wait for MouseDragFix while it rewrites them: smooth scrolling (unless the app in
+    /// front is on the Scrolling tab's list), or a held button with a click-and-scroll effect. The rest of
+    /// the time the wheel tap is off and they pass straight through.
     func updateWheelTap() {
         guard let wheelTap else { return }
-        let needed = config.enabled && (config.scroll.enabled || (hold?.cfg.scroll ?? .off) != .off)
+        let smooth = config.scroll.enabled && !scrollEngine.suspended
+        let needed = config.enabled && (smooth || (hold?.cfg.scroll ?? .off) != .off)
         guard needed != wheelTapEnabled else { return }
         CGEvent.tapEnable(tap: wheelTap, enable: needed)
         wheelTapEnabled = needed
+    }
+
+    /// Turns smooth scrolling off while an app from the Scrolling tab's list is in front.
+    func setSmoothScrollingSuspended(_ on: Bool) {
+        guard on != scrollEngine.suspended else { return }
+        scrollEngine.suspended = on
+        updateWheelTap()
     }
 
     /// Switching a tap on or off is a round trip to WindowServer (about 0.5 ms, up to 4 ms measured), so it

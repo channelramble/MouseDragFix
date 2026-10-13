@@ -172,6 +172,13 @@ enum ScrollSpeed: String, Codable, CaseIterable, Identifiable {
     var pixelsPerNotch: Double { switch self { case .low: return 32; case .medium: return 52; case .high: return 84 } }
 }
 
+/// An app in which smooth scrolling is switched off. `id` is the bundle identifier, or the executable's
+/// path for the few programs (some games, Java) that don't have one.
+struct ExcludedApp: Codable, Equatable, Hashable, Identifiable {
+    var id: String
+    var name: String
+}
+
 struct KeyShortcut: Codable, Equatable {
     var keyCode: UInt16
     var modifiers: UInt64      // CGEventFlags raw value
@@ -223,6 +230,7 @@ struct ScrollConfig: Codable, Equatable {
     var modPrecise = true      // Option
     var modSwift = true        // Control
     var modZoom = true         // Command
+    var excludedApps: [ExcludedApp] = []   // smooth scrolling is off while one of these is in front
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -235,7 +243,10 @@ struct ScrollConfig: Codable, Equatable {
         modPrecise = try c.decodeIfPresent(Bool.self, forKey: .modPrecise) ?? true
         modSwift = try c.decodeIfPresent(Bool.self, forKey: .modSwift) ?? true
         modZoom = try c.decodeIfPresent(Bool.self, forKey: .modZoom) ?? true
+        excludedApps = try c.decodeIfPresent([ExcludedApp].self, forKey: .excludedApps) ?? []
     }
+
+    func excludes(_ id: String?) -> Bool { id.map { id in excludedApps.contains { $0.id == id } } ?? false }
 }
 
 struct PointerConfig: Codable, Equatable {

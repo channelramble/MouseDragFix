@@ -198,6 +198,8 @@ struct GuideTab: View {
          "Zooming acts like a trackpad pinch, so it only works in apps that support pinch-to-zoom."),
         ("Pages bounce when they reach the end",
          "That's the trackpad feel of High smoothness. Choose Regular in the Scrolling tab for a clean stop."),
+        ("Scrolling feels wrong in a game or one app",
+         "Add it under Apps without smooth scrolling in the Scrolling tab, or click the menu bar icon while using it and turn off Smooth Scrolling there."),
     ]
 
     var body: some View {
@@ -288,6 +290,9 @@ struct GuideTab: View {
         if s.modSwift { mods.append("⌃ Control for big jumps") }
         if s.modZoom { mods.append("⌘ Command to zoom") }
         if !mods.isEmpty { lines.append("While scrolling, hold " + mods.joined(separator: ", ")) }
+        if !s.excludedApps.isEmpty {
+            lines.append("Scrolls normally while " + s.excludedApps.map(\.name).formatted(.list(type: .or)) + " is in front")
+        }
         return lines
     }
 
@@ -584,6 +589,9 @@ struct ScrollingTab: View {
                      : "Turn on smooth scrolling above to use these.")
             }
             .disabled(!store.config.scroll.enabled)
+
+            ExcludedAppsSection(store: store)
+                .disabled(!store.config.scroll.enabled)
         }
         .formStyle(.grouped)
     }
